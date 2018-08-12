@@ -156,8 +156,6 @@ static void *gw_thread_up(void *arg) {
 		}
 	}
 
-	close(gw_config->client);
-
 	return NULL;
 }
 
@@ -179,10 +177,10 @@ static void *gw_thread_down(void *arg) {
 		}
 	}
 
-	close(gw_config->client);
 
 	return NULL;
 }
+
 
 static void *gw_thread(void *arg) {
 	// Create an setup socket
@@ -242,6 +240,7 @@ static void *gw_thread(void *arg) {
 
 			pthread_join(thread_up, NULL);
 			pthread_join(thread_down, NULL);
+			close(gw_config->client);
 		}
 	}
 

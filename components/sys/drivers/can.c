@@ -177,6 +177,57 @@ static void *gw_thread_down(void *arg) {
 		}
 	}
 
+	return NULL;
+}
+
+static void *gw_thread_s(void *arg) {
+	// Create an setup socket
+	const struct addrinfo hints = {
+		.ai_family = AF_INET,
+		.ai_socktype = SOCK_STREAM,
+	};
+
+	struct addrinfo *res;
+	int err = getaddrinfo(gw_config->host, gw_config->port, &hints, &res);
+	if (err != 0 || res == NULL) {
+		syslog(LOG_ERR,"can%d gateway: cannot find host %s:%d",gw_config->unit,gw_config->host,gw_config->port);
+		return NULL;
+	}
+
+	gw_config->socket = socket(AF_INET, SOCK_STREAM, 0);
+	if (gw_config->socket < 0) {
+		syslog(LOG_ERR, "can%d gateway: can't create socket", gw_config->unit);
+		return NULL;
+	}
+
+	syslog(LOG_INFO, "can%d starting..",gw_config->unit);
+	while (!gw_config->stop) {
+		// connect to server
+		if ( connect(gw_config->socket, res->ai_addr,res->ai_addrlen) == 0) {
+		        gw_config->client = gw_config->socket;
+
+			// Start threads for client
+			pthread_t thread_up;
+			pthread_attr_t attr;
+
+			pthread_attr_init(&attr);
+
+			pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+			if (pthread_create(&thread_up, &attr, gw_thread_up, NULL)) {
+				syslog(LOG_ERR, "can%d gateway: can't start up thread", gw_config->unit);
+				return NULL;
+			}
+			gw_thread_down(NULL);
+
+			pthread_setname_np(thread_up, "can_gw_up");
+			pthread_setname_np(gw_config->thread, "can_gw_down");
+
+			pthread_join(thread_up, NULL);
+		} else {
+			syslog(LOG_ERR, "can%d gateway:  Failed connecting", gw_config->unit);
+		}
+	}
+	close(gw_config->socket);
 
 	return NULL;
 }
@@ -474,8 +525,9 @@ driver_error_t *can_remove_filter(int32_t unit, int32_t fromId, int32_t toId) {
 	return NULL;
 }
 
-driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port) {
+driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port, const char *host) {
 	driver_error_t *error;
+	void *(*service) (void *) = gw_thread;  // default listening service
 
 	// Sanity checks
 	if ((unit < CPU_FIRST_CAN) || (unit > CPU_LAST_CAN)) {
@@ -493,6 +545,11 @@ driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port) {
 	}
 
 	gw_config->port = port;
+        if ( host ) {
+                // Connect to this host
+		gw_config->host = strdup(host);
+		service = gw_thread_s;
+        }
 	gw_config->stop = 0;
 
 	// Start main thread
@@ -501,7 +558,7 @@ driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port) {
 	pthread_attr_init(&attr);
 
     pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-	if (pthread_create(&gw_config->thread, &attr, gw_thread, NULL)) {
+	if (pthread_create(&gw_config->thread, &attr, service, NULL)) {
 		free(gw_config);
 
 		return driver_error(CAN_DRIVER, CAN_ERR_NOT_ENOUGH_MEMORY, "can't start main thread");
@@ -535,6 +592,8 @@ driver_error_t *can_gateway_stop(int32_t unit) {
 
 	pthread_join(gw_config->thread, NULL);
 
+        if ( gw_config->host )
+		free(gw_config->host);
 	free(gw_config);
 	gw_config = NULL;
 

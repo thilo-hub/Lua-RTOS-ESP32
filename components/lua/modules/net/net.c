@@ -239,6 +239,17 @@ static int lnet_unpackip(lua_State *L) {
         return luaL_error(L, "invalid format");
 }
 
+static int lnet_hostname(lua_State* L) {
+    int error;
+
+    const char* name = luaL_checkstring(L, 1);
+    if ((error = sethostname(name,strlen(name))) != 0) {
+        return luaL_error(L, lua_tostring(L, -1));
+    }
+
+    return 0;
+}
+
 static int lnet_ping(lua_State* L) {
     driver_error_t *error;
 
@@ -394,6 +405,7 @@ static const LUA_REG_TYPE net_map[] = {
     { LSTRKEY( "ping" ),      LFUNCVAL ( lnet_ping ) },
     { LSTRKEY( "ota" ),       LFUNCVAL ( lnet_ota ) },
     { LSTRKEY( "callback" ),  LFUNCVAL ( lnet_callback ) },
+    { LSTRKEY( "hostname" ),  LFUNCVAL ( lnet_hostname ) },
 
 #if CONFIG_LUA_RTOS_LUA_USE_SCP_NET
     { LSTRKEY( "scp" ), LROVAL ( scp_map ) },

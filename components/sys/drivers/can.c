@@ -263,6 +263,12 @@ driver_error_t *can_setup(int32_t unit, uint32_t speed, uint16_t rx_size) {
 		return driver_error(CAN_DRIVER, CAN_ERR_INVALID_UNIT, NULL);
 	}
 
+	// Set CAN configuration
+	CAN_cfg.speed = speed;
+	CAN_cfg.tx_pin_id = 16; // CONFIG_LUA_RTOS_CAN_TX;
+	CAN_cfg.rx_pin_id = 14; // CONFIG_LUA_RTOS_CAN_RX;
+
+
 	if (!setup) {
 #if CONFIG_LUA_RTOS_USE_HARDWARE_LOCKS
 		// Lock TX pin

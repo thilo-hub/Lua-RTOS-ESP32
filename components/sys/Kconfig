@@ -1155,7 +1155,11 @@ menu "Lua RTOS"
             config LUA_RTOS_LUA_USE_UTF8
                bool "Include utf8 module in build"
                default y
-   
+
+            config LUA_RTOS_LUA_USE_BENC
+               bool "Include base64 encoder  module in build"
+               default y
+
             config LUA_RTOS_LUA_USE_PACKAGE
                bool "Include package module in build"
                default y

@@ -56,8 +56,9 @@ static int lcan_service_start(lua_State* L) {
 	int id = luaL_checkinteger(L, 1);
 	uint32_t speed = luaL_checkinteger(L, 2);
 	uint32_t port = luaL_checkinteger(L, 3);
+	const char *host = lua_tostring(L, 4);
 
-	if ((error = can_gateway_start(id, speed, port))) {
+	if ((error = can_gateway_start(id, speed, port, host))) {
 		return luaL_driver_error(L, error);
 	}
 

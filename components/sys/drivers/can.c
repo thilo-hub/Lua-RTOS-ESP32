@@ -127,6 +127,8 @@ static void can_ll_rx(CAN_frame_t *frame) {
 static void *gw_thread_up(void *arg) {
 	CAN_frame_t frame;
 	struct can_frame packet;
+	// Fill packet
+	memset(&packet, 0, sizeof(packet));
 
 	// Set a timeout for send
 	struct timeval tout;
@@ -134,12 +136,10 @@ static void *gw_thread_up(void *arg) {
 	tout.tv_usec = 0;
 	setsockopt(gw_config->client, SOL_SOCKET, SO_SNDTIMEO, &tout, sizeof(tout));
 
-	while(!gw_config->stop) {
+	while(gw_config->client>0) {
 		// Wait for a CAN packet
 		can_ll_rx(&frame);
 		if (frame.FIR.B.DLC != 0) {
-			// Fill packet
-			memset(&packet, 0, sizeof(packet));
 
 			packet.can_id = (frame.FIR.B.FF << 31) | (frame.FIR.B.RTR << 30) | frame.MsgID;
 			packet.can_dlc = frame.FIR.B.DLC;
@@ -148,10 +148,7 @@ static void *gw_thread_up(void *arg) {
 
 			// Write frame to socket
 			if (write(gw_config->client, &packet, sizeof(packet)) != sizeof(packet)) {
-				close(gw_config->client);
-
 				syslog(LOG_ERR, "can%d gateway: can't write to socket", gw_config->unit);
-
 				return NULL;
 			}
 		}
@@ -164,8 +161,7 @@ static void *gw_thread_down(void *arg) {
 	struct can_frame packet;
 	CAN_frame_t frame;
 
-	while(!gw_config->stop) {
-		if (read(gw_config->client, &packet, sizeof(packet)) == sizeof(packet)) {
+	while( read(gw_config->client, &packet, sizeof(packet)) == sizeof(packet)) {
 			// Fill frame
 			frame.MsgID = (packet.can_id & 0b11111111111111111111111111111);
 			frame.FIR.B.FF = (packet.can_id & 0b10000000000000000000000000000000?1:0);
@@ -175,7 +171,6 @@ static void *gw_thread_down(void *arg) {
 			memcpy(frame.data.u8, packet.data, sizeof(packet.data));
 
 			can_ll_tx(&frame);
-		}
 	}
 
 	return NULL;
@@ -192,14 +187,14 @@ static void *gw_thread_s(void *arg) {
 		return NULL;
 	}
 
-	gw_config->socket = socket(AF_INET, SOCK_STREAM, 0);
-	if (gw_config->socket < 0) {
-		syslog(LOG_ERR, "can%d gateway: can't create socket", gw_config->unit);
-		return NULL;
-	}
-
-	syslog(LOG_INFO, "can%d starting..",gw_config->unit);
 	while (!gw_config->stop) {
+		gw_config->socket = socket(AF_INET, SOCK_STREAM, 0);
+		if (gw_config->socket < 0) {
+			syslog(LOG_ERR, "can%d gateway: can't create socket", gw_config->unit);
+			return NULL;
+		}
+
+		syslog(LOG_INFO, "can%d starting..",gw_config->unit);
 		// connect to server
 		if ( connect(gw_config->socket,(struct sockaddr *) &addr,sizeof(addr)) == 0) {
 		        gw_config->client = gw_config->socket;
@@ -209,23 +204,30 @@ static void *gw_thread_s(void *arg) {
 			pthread_attr_t attr;
 
 			pthread_attr_init(&attr);
-
 			pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 			if (pthread_create(&thread_up, &attr, gw_thread_up, NULL)) {
 				syslog(LOG_ERR, "can%d gateway: can't start up thread", gw_config->unit);
-				return NULL;
+				break;
 			}
 			gw_thread_down(NULL);
-
+			
 			pthread_setname_np(thread_up, "can_gw_up");
 			pthread_setname_np(gw_config->thread, "can_gw_down");
 
+			// Send an empty frame to the queue to unblock gw_thread_up
+			CAN_frame_t frame;
+			memset(&frame, 0, sizeof(frame));
+			xQueueSend(CAN_cfg.rx_queue,&frame,0);
+
 			pthread_join(thread_up, NULL);
 		} else {
+			// Stall for some time, then retry
 			syslog(LOG_ERR, "can%d gateway:  Failed connecting", gw_config->unit);
+			const TickType_t xDelay = 2000 / portTICK_PERIOD_MS;
+			vTaskDelay( xDelay );
 		}
+		close(gw_config->socket);
 	}
-	close(gw_config->socket);
 
 	return NULL;
 }
@@ -252,7 +254,7 @@ static void *gw_thread(void *arg) {
 		return NULL;
 	}
 
-	if (listen(gw_config->socket, 5)) {
+	if (listen(gw_config->socket, 1)) {
 		syslog(LOG_ERR, "can%d gateway: can't listen on port %d",gw_config->unit, gw_config->port);
 		return NULL;
 	}
@@ -262,33 +264,26 @@ static void *gw_thread(void *arg) {
 	while (!gw_config->stop) {
 		// Wait for a connection
 		gw_config->client = accept(gw_config->socket, (struct sockaddr*) NULL, NULL);
-		if (gw_config->client > 0) {
+		if (gw_config->client >= 0) {
 			syslog(LOG_INFO, "can%d gateway: client connected", gw_config->unit);
 
 			// Start threads for client
 			pthread_t thread_up;
-			pthread_t thread_down;
 			pthread_attr_t attr;
 
 			pthread_attr_init(&attr);
 
-		    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+			pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 			if (pthread_create(&thread_up, &attr, gw_thread_up, NULL)) {
 				syslog(LOG_ERR, "can%d gateway: can't start up thread", gw_config->unit);
-				return NULL;
 			}
 
-		    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-			if (pthread_create(&thread_down, &attr, gw_thread_down, NULL)) {
-				syslog(LOG_ERR, "can%d gateway: can't start down thread", gw_config->unit);
-				return NULL;
-			}
+			gw_thread_down(NULL);
 
 			pthread_setname_np(thread_up, "can_gw_up");
-			pthread_setname_np(thread_down, "can_gw_down");
+			pthread_setname_np(gw_config->thread, "can_gw_down");
 
 			pthread_join(thread_up, NULL);
-			pthread_join(thread_down, NULL);
 			close(gw_config->client);
 		}
 	}
@@ -527,6 +522,10 @@ driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port, co
 		return error;
 	}
 
+	if (gw_config) {
+		return driver_error(CAN_DRIVER, CAN_ERR_CANT_START, NULL);
+	}
+
 	// Allocate space for configuration
 	gw_config = calloc(1, sizeof(can_gw_config_t));
 	if (!gw_config) {
@@ -539,14 +538,13 @@ driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port, co
 		gw_config->host = strdup(host);
 		service = gw_thread_s;
         }
-	gw_config->stop = 0;
 
 	// Start main thread
 	pthread_attr_t attr;
 
 	pthread_attr_init(&attr);
 
-    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 	if (pthread_create(&gw_config->thread, &attr, service, NULL)) {
 		free(gw_config);
 

@@ -267,13 +267,13 @@ driver_error_t *can_setup(int32_t unit, uint32_t speed, uint16_t rx_size) {
 	if (!setup) {
 #if CONFIG_LUA_RTOS_USE_HARDWARE_LOCKS
 		// Lock TX pin
-	    if ((lock_error = driver_lock(CAN_DRIVER, 0, GPIO_DRIVER, CONFIG_LUA_RTOS_CAN_TX, DRIVER_ALL_FLAGS, "TX"))) {
+	    if ((lock_error = driver_lock(CAN_DRIVER, 0, GPIO_DRIVER, CAN_cfg.tx_pin_id, DRIVER_ALL_FLAGS, "TX"))) {
 	    	// Revoked lock on pin
 	    	return driver_lock_error(CAN_DRIVER, lock_error);
 	    }
 
 	    // Lock RX pin
-	    if ((lock_error = driver_lock(CAN_DRIVER, 0, GPIO_DRIVER, CONFIG_LUA_RTOS_CAN_RX, DRIVER_ALL_FLAGS, "RX"))) {
+	    if ((lock_error = driver_lock(CAN_DRIVER, 0, GPIO_DRIVER, CAN_cfg.rx_pin_id, DRIVER_ALL_FLAGS, "RX"))) {
 	    	// Revoked lock on pin
 	    	return driver_lock_error(CAN_DRIVER, lock_error);
 	    }
@@ -309,8 +309,8 @@ driver_error_t *can_setup(int32_t unit, uint32_t speed, uint16_t rx_size) {
 	    mtx_init(&mtx, NULL, NULL, 0);
 
 		syslog(LOG_INFO, "can%d at pins tx=%s%d, rx=%s%d", 0,
-			gpio_portname(CONFIG_LUA_RTOS_CAN_TX), gpio_name(CONFIG_LUA_RTOS_CAN_TX),
-			gpio_portname(CONFIG_LUA_RTOS_CAN_RX), gpio_name(CONFIG_LUA_RTOS_CAN_RX)
+			gpio_portname(CAN_cfg.tx_pin_id), gpio_name(CAN_cfg.tx_pin_id),
+			gpio_portname(CAN_cfg.rx_pin_id), gpio_name(CAN_cfg.rx_pin_id)
 		);
 	}
 

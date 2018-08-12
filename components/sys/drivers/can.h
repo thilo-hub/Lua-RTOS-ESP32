@@ -67,6 +67,7 @@ typedef struct {
 	uint8_t unit;
 	uint8_t stop;
 	pthread_t thread;
+        char *host;
 } can_gw_config_t;
 
 #define CAN_MAX_DLEN 8
@@ -134,7 +135,7 @@ driver_error_t *can_tx(int32_t unit, uint32_t msg_id, uint8_t msg_type, uint8_t 
 driver_error_t *can_rx(int32_t unit, uint32_t *msg_id, uint8_t *msg_type, uint8_t *data, uint8_t *len);
 driver_error_t *can_add_filter(int32_t unit, int32_t fromId, int32_t toId);
 driver_error_t *can_remove_filter(int32_t unit, int32_t fromId, int32_t toId);
-driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port);
+driver_error_t *can_gateway_start(int32_t unit, uint32_t speed, int32_t port, const char *host);
 driver_error_t *can_gateway_stop(int32_t unit);
 
 #endif	/* CAN_H */
